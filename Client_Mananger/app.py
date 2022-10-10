@@ -2,15 +2,12 @@ import argparse
 
 from pydantic.main import BaseModel
 import logging
-import requests
 import uvicorn
 from fastapi import FastAPI
 import asyncio
-import wget
-from functools import partial
-from datetime import datetime, timedelta 
 
-from functools import wraps
+from datetime import datetime
+
 
 import requests
 
@@ -34,7 +31,7 @@ class manager_status(BaseModel):
     global today_str, number
 
     # INFER_SE: str = '0.0.0.0:8001'
-    FL_client: str = '127.0.0.1:800%s'%number
+    FL_client: str = '127.0.0.1:800%s' % number
     FL_server_ST: str = '0.0.0.0:8050'
     FL_server: str = '0.0.0.0:8080'  # '0.0.0.1:8080'
     FL_client_num: int = 0
@@ -48,12 +45,8 @@ class manager_status(BaseModel):
 
 manager = manager_status()
 
-
 @app.on_event("startup")
 def startup():
-    ##### S0 #####
-    
-    get_server_info()
 
     ##### S1 #####
     loop = asyncio.get_event_loop()
@@ -62,25 +55,17 @@ def startup():
     # 이런식으로 짠 이유는 개발과정에서 각 구성요소의 상태가 불안정할수 있기 때문으로
     # manager가 일정주기로 상태를 확인하고 또는 명령에 대한 반환값을 가지고 정보를 갱신합니다
     loop.create_task(health_check())
-    # loop.create_task(check_infer_online())
     loop.create_task(check_flclient_online())
-    # loop.create_task(infer_update())
     loop.create_task(start_training())
-
-
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
 
 
 @app.get("/trainFin")
 def fin_train():
     global manager
     print('fin')
-    # manager.infer_ready = True
     manager.FL_learning = False
     manager.FL_ready = False
-    manager.GL_Model_V += 1
+    # manager.GL_Model_V += 1
     return manager
 
 
@@ -88,10 +73,9 @@ def fin_train():
 def fail_train():
     global manager
     print('Fail')
-    #manager.infer_ready = False
     manager.FL_learning = False
     manager.FL_ready = False
-    asyncio.run(health_check()) 
+    asyncio.run(health_check())
     return manager
 
 
@@ -99,13 +83,14 @@ def fail_train():
 def get_manager_info():
     return manager
 
+
 @app.get('/flclient_out')
 def flclient_out():
     manager.FL_client_online = False
     manager.FL_learning = False
     return manager
 
-
+# 비동기적으로 함수 start
 def async_dec(awaitable_func):
     async def keeping_state():
         while True:
@@ -121,7 +106,7 @@ def async_dec(awaitable_func):
 
     return keeping_state
 
-
+# Server_Status의 상태 확인
 @async_dec
 async def health_check():
     global manager
@@ -133,12 +118,9 @@ async def health_check():
         # raise
         res = await loop.run_in_executor(None, requests.get, ('http://' + manager.FL_server_ST + '/FLSe/info'))
         if (res.status_code == 200) and (res.json()['Server_Status']['FLSeReady']):
-            # if res.json()['Server_Status']['GL_Model_V'] != manager.GL_Model_V:
-            #     await pull_model()
-            #     manager.GL_Model_V = res.json()['Server_Status']['GL_Model_V']
             manager.FL_ready = res.json()['Server_Status']['FLSeReady']
-            # logging.info('flclient learning')
-            # manager.FL_learning = True
+            manager.GL_Model_V = res.json()['Server_Status']['GL_Model_V']
+
         elif (res.status_code != 200):
             # manager.FL_client_online = False
             logging.error('FL_server_ST offline')
@@ -147,11 +129,14 @@ async def health_check():
             pass
     else:
         pass
-    await asyncio.sleep(8)
+    await asyncio.sleep(10)
 
+
+# Flower_Client의 상태 확인
 @async_dec
 async def check_flclient_online():
     global manager
+
     if (manager.FL_client_online == False):
         logging.info('FL_client offline')
         loop = asyncio.get_event_loop()
@@ -168,34 +153,27 @@ async def check_flclient_online():
         await asyncio.sleep(12)
 
 
+# Flower_Client 학습 수행 Trigger 발생
 @async_dec
 async def start_training():
     global manager
     if (manager.FL_client_online == True) and (manager.FL_learning == False) and (manager.FL_ready == True):
         logging.info('start training')
         loop = asyncio.get_event_loop()
-        res = await loop.run_in_executor(None, requests.get, ('http://' + manager.FL_client + '/start/'+manager.FL_server))
+        res = await loop.run_in_executor(None, requests.get, ('http://' + manager.FL_client + '/start/' + manager.FL_server))
+        manager.FL_learning = True
+
         if (res.status_code == 200) and (res.json()['FL_client_start']):
-            manager.FL_learning = True
-            logging.info('start_train')
+            # manager.FL_learning = True
+            logging.info('client learn')
+            # await asyncio.sleep(5)
         elif (res.status_code != 200):
             manager.FL_client_online = False
             logging.info('flclient offline')
         else:
             pass
     else:
-        await asyncio.sleep(13)
-
-
-def get_server_info():
-    global manager
-    try:
-        res = requests.get('http://' + manager.FL_server_ST + '/FLSe/info')
-        # print(res.json())
-        manager.GL_Model_V = res.json()['Server_Status']['GL_Model_V']
-    except Exception as e:
-        raise e
-    return manager
+        await asyncio.sleep(15)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 class ServerStatus(BaseModel):
 
     S3_bucket: str = 'fl-flower-model'
-    S3_key: str = '' # 모델 가중치 파일 이름
+    GL_Model: str = '' # 모델 가중치 파일 이름
     play_datetime: str = ''
     FLSeReady: bool = False
     GL_Model_V: int = 0 #모델버전 

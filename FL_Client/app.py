@@ -1,8 +1,11 @@
 # https://github.com/adap/flower/tree/main/examples/advanced_tensorflow 참조
 import datetime
+import itertools
 import os, logging, json
 import argparse
+import re
 import time
+from collections import Counter
 
 import tensorflow as tf
 
@@ -31,17 +34,9 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 # # CPU만 사용
 # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-# 성능
-loss = 0
-accuracy = 0
-
-next_gl_model = 0
-
-round = 1 # 현재 수행 round 수
-
-
 # FL client 상태 확인
 app = FastAPI()
+
 
 # Parse command line argument `partition`
 parser = argparse.ArgumentParser(description="Flower")
@@ -113,10 +108,6 @@ class CifarClient(fl.client.NumPyClient):
         # round 종료 시간
         round_end_time = time.time() - round_start_time  # 연합학습 종료 시간
         round_client_operation_time = str(datetime.timedelta(seconds=round_end_time))
-        logging.info(f'round: {status.FL_round}, round_client_operation_time: {round_client_operation_time}')
-
-        # 다음 라운드 수 증가
-        status.FL_round += 1
 
         # Return updated model parameters and results
         parameters_prime = self.model.get_weights()
@@ -129,6 +120,17 @@ class CifarClient(fl.client.NumPyClient):
             "val_loss": history.history["val_loss"][0],
             "val_accuracy": history.history["val_accuracy"][0],
         }
+
+        # Training: model performance by round
+        train_result = {"client_num": status.FL_client_num, "round": status.FL_round, "loss": status.FL_loss, "accuracy": status.FL_accuracy,
+                        "next_gl_model": status.FL_next_gl_model, "execution_time": round_client_operation_time}
+        json_result = json.dumps(train_result)
+        # print train log
+        print(f'train - {json_result}')
+        # print('{"client_num": ' + str(status.FL_client_num) + '{"round": ' + str(status.FL_round) + ', "log": "' + str(json_result) + '"}')
+
+        # save local model
+        self.model.save(f'./local_model/num_{status.FL_client_num}_local_model/local_model_V{status.FL_next_gl_model}.h5')
 
         return parameters_prime, num_examples_train, results
 
@@ -145,7 +147,17 @@ class CifarClient(fl.client.NumPyClient):
         test_loss, test_accuracy = self.model.evaluate(self.x_test, self.y_test, 32, steps=steps)
         num_examples_test = len(self.x_test)
 
-        print('test_loss: ', test_loss, 'test_accuracy: ', test_accuracy)
+        # Test: model performance by round
+        test_result = {"client_num": status.FL_client_num, "round": status.FL_round, "loss": test_loss, "accuracy": test_accuracy, "next_gl_model": status.FL_next_gl_model}
+        json_result = json.dumps(test_result)
+        print(f'test - {json_result}')
+
+        # 다음 라운드 수 증가
+        status.FL_round += 1
+
+        # print(f'test - client_num: {status.FL_client_num}, round: {status.FL_round}, performance: {json_result}')
+        # print('{"client_num": ' + str(status.FL_client_num) + '{"round": ' + str(status.FL_round) + ', "log": "' + str(json_result) + '"}')
+        # print('test_loss: ', test_loss, 'test_accuracy: ', test_accuracy)
 
         return test_loss, num_examples_test, {"accuracy": test_accuracy}
 
@@ -211,15 +223,23 @@ def build_model():
 
 async def flower_client_start():
     logging.info('FL learning ready')
-    global model, status
+    global status
 
     # 환자별로 partition 분리 => 개별 클라이언트 적용
     (x_train, y_train), (x_test, y_test) = load_partition()
     # await asyncio.sleep(30) # data download wait
     logging.info('data loaded')
 
-    model = build_model()
-    logging.info('bulid model')
+    # local_model 유무 확인
+    local_list = os.listdir(f'./local_model/num_{client_num}_local_model')
+    if not local_list:
+        print('init local model')
+        model = build_model()
+
+    else:
+        # 최신 local model 다운
+        print('Latest Local Model download')
+        model = download_local_model(local_list)
 
     try:
         loop = asyncio.get_event_loop()
@@ -242,11 +262,12 @@ async def flower_client_start():
         fl_client_operation_time = str(datetime.timedelta(seconds=fl_end_time))
         logging.info(f'fl_client_operation_time: {fl_client_operation_time}')
 
-        await model_save()
-        logging.info('model_save')
-
         # client 객체 및 fl_client_start request 삭제
         del client, request
+
+        # Client learning 완료
+        await notify_fin()
+        logging.info('FL Client Learning Finish')
 
     except Exception as e:
         logging.info('[E][PC0002] learning', e)
@@ -258,19 +279,38 @@ async def flower_client_start():
     return status
 
 
-async def model_save():
-    global model, status
-    try:
-        model.save('./local_model/num_%s_local_model_V%s.h5' % (status.FL_client_num, status.FL_next_gl_model))
-        await notify_fin()
-        model = None
-    except Exception as e:
-        logging.info('[E][PC0003] learning', e)
-        status.FL_client_fail = True
-        await notify_fail()
-        status.FL_client_fail = False
+# latest local model download
+def download_local_model(listdir):
+    # mac에서만 시행 (.DS_Store 파일 삭제)
+    if '.DS_Store' in listdir:
+        i = listdir.index(('.DS_Store'))
+        del listdir[i]
 
-    return status
+    s = listdir[0]  # 비교 대상(gl_model 지정) => sort를 위함
+    p = re.compile(r'\d+')  # 숫자 패턴 추출
+    local_list_sorted = sorted(listdir, key=lambda s: int(p.search(s).group()))  # gl model 버전에 따라 정렬
+
+    local_model_name = local_list_sorted[len(local_list_sorted) - 1]  # 최근 gl model 추출
+    model = tf.keras.models.load_model(f'./local_model/num_{client_num}_local_model/{local_model_name}')
+    # local_model_v = int(local_model_name.split('_')[1])
+    print('local_model_name: ', local_model_name)
+
+    return model
+
+# async def model_save():
+#     global model, status
+#     try:
+#         model.save('./local_model/num_%s_local_model_V%s.h5' % (status.FL_client_num, status.FL_next_gl_model))
+#
+#         await notify_fin()
+#         model = None
+#     except Exception as e:
+#         logging.info('[E][PC0003] learning', e)
+#         status.FL_client_fail = True
+#         await notify_fail()
+#         status.FL_client_fail = False
+#
+#     return status
 
 
 # client manager에서 train finish 정보 확인
@@ -278,12 +318,6 @@ async def notify_fin():
     global status
 
     status.FL_client_start = False
-
-    # 최종 성능 결과
-    result = {"loss": status.FL_loss, "accuracy": status.FL_accuracy, "next_gl_model": status.FL_next_gl_model}
-    json_result = json.dumps(result)
-    print(json_result)
-    print('{"client_num": ' + str(status.FL_client_num) + ', "log": "' + str(json_result) + '"}')
 
     loop = asyncio.get_event_loop()
     future2 = loop.run_in_executor(None, requests.get, 'http://localhost:900%s/trainFin' % status.FL_client_num)
@@ -338,10 +372,26 @@ def load_partition():
     train_features = X_train.astype('float32') / 255.0
     test_features = X_test.astype('float32') / 255.0
 
+
+    # data check => IID VS Non IID
+    # array -> list
+    y_list = y_train.tolist()
+    y_train_label = list(itertools.chain(*y_list))
+    counter = Counter(y_train_label)
+    dict_counter = dict(counter)
+    print(f'client_num: {status.FL_client_num}, data_check: {dict_counter}')
+
     return (train_features, train_labels), (test_features, test_labels)
 
 
 if __name__ == "__main__":
+
+    # Local Model repository
+    if not os.path.isdir('./local_model'):
+        os.mkdir('./local_model')
+
+    if not os.path.isdir(f'./local_model/num_{client_num}_local_model'):
+        os.mkdir(f'./local_model/num_{client_num}_local_model')
 
     try:
         # client api 생성 => client manager와 통신하기 위함
