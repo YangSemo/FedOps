@@ -1,5 +1,21 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+Client_Manager/__pycache__/
+FL_Client/__pycache__/
+FL_Server/__pycache__/
+Server_Status/__pycache__/
+
+FL_Client/local_model/
+FL_Server/gl_model/
+
+.idea/
+.DS_Store
+
+Client_Manager/.DS_Store
+FL_Client/.DS_Store
+FL_Server/.DS_Store
+Server_Status/.DS_Store
+
 *.py[cod]
 *$py.class
 
