@@ -8,9 +8,10 @@
   - server: Global Model 생성을 위한 라운드별 aggregation 및 총 수행 시간 Log <br>
 
 **- Data Check**
-  - 각 Client가 보유하고 있는 label count <br>
+  - 각 Client가 보유하고 있는 label count Log <br>
 
 **- Loss/Accuracy Check**
-  - 각 Client의 Loss/Accuracy Log 기록 <br>
+  - 라운드별 각 Client의 Local Model Loss/Accuracy Log
+  - 라운드별 Server의 Global Model Loss/Accuracy Log
 
 **- Weight Check**
