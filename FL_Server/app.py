@@ -21,12 +21,6 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)8.8s] 
                     handlers=[logging.StreamHandler()])
 logger = logging.getLogger(__name__)
 
-# FL 하이퍼파라미터 설정
-num_rounds = 5
-local_epochs = 10
-batch_size = 32
-val_steps = 5
-
 
 # FL 하이퍼파라미터 설정
 class FL_server_parameter:
@@ -124,11 +118,11 @@ def fl_server_start(model):
     # 1. server-side parameter initialization
     # 2. server-side parameter evaluation
 
-    METRICS = [
-        tf.keras.metrics.BinaryAccuracy(name='accuracy'),
-    ]
-
-    model.compile(loss='categorical_crossentropy', optimizer=tf.keras.optimizers.Adam(lr=0.001), metrics=METRICS)
+    # METRICS = [
+    #     tf.keras.metrics.BinaryAccuracy(name='accuracy'),
+    # ]
+    #
+    # model.compile(loss='categorical_crossentropy', optimizer=tf.keras.optimizers.Adam(lr=0.001), metrics=METRICS)
 
     # Create strategy
     strategy = fl.server.strategy.FedAvg(
@@ -149,7 +143,7 @@ def fl_server_start(model):
     # Start Flower server (SSL-enabled) for four rounds of federated learning
     fl.server.start_server(
         server_address="0.0.0.0:8080",
-        config=fl.server.ServerConfig(num_rounds=num_rounds),
+        config=fl.server.ServerConfig(num_rounds=server.FL_num_rounds),
         strategy=strategy,
     )
 
@@ -170,15 +164,20 @@ def get_eval_fn(model):
             # fit aggregation end time
             server.end_by_round = time.time() - server.start_by_round
             round_server_operation_time = str(datetime.timedelta(seconds=server.end_by_round))
-
-            print(f'round: {server.round}, operation_time_by_round: {round_server_operation_time}')
+            server_time_result = {"round": server.round, "operation_time_by_round": round_server_operation_time}
+            json_time_result = json.dumps(server_time_result)
+            print(f'server_time - {json_time_result}')
+            # print(f'round: {server.round}, operation_time_by_round: {round_server_operation_time}')
 
         model.set_weights(parameters)  # Update model with the latest parameters
         
         # loss, accuracy, precision, recall, auc, auprc = model.evaluate(x_val, y_val)
         loss, accuracy = model.evaluate(x_val, y_val)
 
-        print(f'gl_loss: {loss}, gl_accuracy: {accuracy}')
+        server_eval_result = {"gl_loss": loss, "gl_accuracy": accuracy}
+        json_eval_result = json.dumps(server_eval_result)
+        print(f'server_performance - {json_eval_result}')
+        # print(f'gl_loss: {loss}, gl_accuracy: {accuracy}')
 
         # model save
         model.save('./gl_model/gl_model_%s_V.h5' % server.next_gl_model_v)
@@ -243,8 +242,8 @@ if __name__ == "__main__":
     inform_Payload = {
             # 형식
             'S3_bucket': 'fl-flower-model', # 버킷명
-            'GL_Model': 'gl_model_%s_V.h5'%server.latest_gl_model_v,  # 모델 가중치 파일 이름
-            'play_datetime': today_time, # server 수행 시간
+            'Latest_GL_Model': 'gl_model_%s_V.h5'%server.latest_gl_model_v,  # 모델 가중치 파일 이름
+            'Play_datetime': today_time, # server 수행 시간
             'FLSeReady': True, # server 준비 상태 on
             'GL_Model_V' : server.latest_gl_model_v # GL 모델 버전
         }
@@ -281,7 +280,11 @@ if __name__ == "__main__":
 
         fl_end_time = time.time() - fl_start_time  # 연합학습 종료 시간
         fl_server_operation_time = str(datetime.timedelta(seconds=fl_end_time)) # 연합학습 종료 시간
-        print(f'fl_server_operation_time: {fl_server_operation_time}')
+
+        server_all_time_result = {"operation_time": fl_server_operation_time}
+        json_all_time_result = json.dumps(server_all_time_result)
+        print(f'server_operation_time - {json_all_time_result}')
+        # print(f'server_operation_time -  {fl_server_operation_time}')
 
         
     # FL server error

@@ -1,3 +1,5 @@
+import json
+
 from pydantic import BaseModel
 
 import uvicorn
@@ -8,8 +10,8 @@ from fastapi import FastAPI
 class ServerStatus(BaseModel):
 
     S3_bucket: str = 'fl-flower-model'
-    GL_Model: str = '' # 모델 가중치 파일 이름
-    play_datetime: str = ''
+    Latest_GL_Model: str = '' # 모델 가중치 파일 이름
+    Play_datetime: str = ''
     FLSeReady: bool = False
     GL_Model_V: int = 0 #모델버전 
 
@@ -21,7 +23,12 @@ FLSe = ServerStatus()
 @app.get("/FLSe/info")
 def read_status():
     global FLSe
-    print(FLSe)
+
+    server_status_result = {"S3_bucket": FLSe.S3_bucket, "Latest_GL_Model": FLSe.Latest_GL_Model, "Play_datetime": FLSe.Play_datetime,
+                            "FLSeReady": FLSe.FLSeReady, "GL_Model_V": FLSe.GL_Model_V}
+    json_server_status_result = json.dumps(server_status_result)
+    print(f'server_status - {json_server_status_result}')
+    # print(FLSe)
     return {"Server_Status": FLSe}
 
 

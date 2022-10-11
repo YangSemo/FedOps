@@ -246,7 +246,7 @@ async def flower_client_start():
         client = CifarClient(model, x_train, y_train, x_test, y_test)
         # logging.info(f'fl-server-ip: {status.FL_server_IP}')
         # await asyncio.sleep(23)
-        print('server IP: ', status.FL_server_IP)
+        # print('server IP: ', status.FL_server_IP)
         request = partial(fl.client.start_numpy_client, server_address=status.FL_server_IP, client=client)
 
         # 라운드 수 초기화
@@ -260,7 +260,12 @@ async def flower_client_start():
 
         fl_end_time = time.time() - fl_start_time  # 연합학습 종료 시간
         fl_client_operation_time = str(datetime.timedelta(seconds=fl_end_time))
-        logging.info(f'fl_client_operation_time: {fl_client_operation_time}')
+
+        client_all_time_result = {"client_num": status.FL_client_num, "operation_time": fl_client_operation_time}
+        json_all_time_result = json.dumps(client_all_time_result)
+        print(f'client_operation_time - {json_all_time_result}')
+
+        # logging.info(f'fl_client_operation_time: {fl_client_operation_time}')
 
         # client 객체 및 fl_client_start request 삭제
         del client, request
@@ -379,7 +384,13 @@ def load_partition():
     y_train_label = list(itertools.chain(*y_list))
     counter = Counter(y_train_label)
     dict_counter = dict(counter)
-    print(f'client_num: {status.FL_client_num}, data_check: {dict_counter}')
+
+    # data check log 생성
+    data_result = {"client_num": {status.FL_client_num}, "data_check": dict_counter}
+    json_data_result = json.dumps(data_result)
+    print(f'data_check - {json_data_result}')
+
+    # print(f'client_num: {status.FL_client_num}, data_check: {dict_counter}')
 
     return (train_features, train_labels), (test_features, test_labels)
 

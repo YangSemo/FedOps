@@ -1,4 +1,5 @@
 import argparse
+import json
 
 from pydantic.main import BaseModel
 import logging
@@ -110,9 +111,14 @@ def async_dec(awaitable_func):
 @async_dec
 async def health_check():
     global manager
-    print('FL_learning: ', manager.FL_learning)
-    print('FL_client_online: ', manager.FL_client_online)
-    print('FL_ready: ', manager.FL_ready)
+
+    health_check_result = {"FL_learning": manager.FL_learning, "FL_client_online": manager.FL_client_online, "FL_ready": manager.FL_ready}
+    json_result = json.dumps(health_check_result)
+    print(f'health_check - {json_result}')
+
+    # print('FL_learning: ', manager.FL_learning)
+    # print('FL_client_online: ', manager.FL_client_online)
+    # print('FL_ready: ', manager.FL_ready)
     if (manager.FL_learning == False) and (manager.FL_client_online == True):
         loop = asyncio.get_event_loop()
         # raise
